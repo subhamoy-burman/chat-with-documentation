@@ -1,75 +1,50 @@
-import os
-
+import time
 from dotenv import load_dotenv
-
 load_dotenv()
 
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import ReadTheDocsLoader
-from langchain_openai import OpenAIEmbeddings
+from langchain_openai import AzureOpenAIEmbeddings, OpenAIEmbeddings
 from langchain_pinecone import PineconeVectorStore
 
-from consts import INDEX_NAME
-
-embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
-
+# Use Azure OpenAI embeddings
+embeddings = AzureOpenAIEmbeddings(
+        model="text-embedding-ada-002",
+        azure_deployment="subhamoy-text-embeddings"
+    # dimensions: Optional[int] = None, # Can specify dimensions with new text-embedding-3 models
+    # azure_endpoint="https://<your-endpoint>.openai.azure.com/", If not provided, will read env variable AZURE_OPENAI_ENDPOINT
+    # api_key=... # Can provide an API key directly. If missing read env variable AZURE_OPENAI_API_KEY
+    # openai_api_version=..., # If not provided, will read env variable AZURE_OPENAI_API_VERSION
+    )
 
 def ingest_docs():
-    loader = ReadTheDocsLoader("langchain-docs/api.python.langchain.com/en/latest")
-
+    # Add your document ingestion logic here
+    loader = ReadTheDocsLoader("C:\\Users\\sburman\\Projects\\Py-DocumentationReader\\documentation-helper\\langchain-docs\\api.python.langchain.com\\en\\latest", encoding='utf-8')
     raw_documents = loader.load()
-    print(f"loaded {len(raw_documents)} documents")
+    print(f"Loaded {len(raw_documents)} documents")
 
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=600, chunk_overlap=50)
     documents = text_splitter.split_documents(raw_documents)
     for doc in documents:
         new_url = doc.metadata["source"]
         new_url = new_url.replace("langchain-docs", "https:/")
-        doc.metadata.update({"source": new_url})
+        doc.metadata.update({"source":new_url})
 
-    print(f"Going to add {len(documents)} to Pinecone")
-    PineconeVectorStore.from_documents(documents, embeddings, index_name=INDEX_NAME)
-    print("****Loading to vectorstore done ***")
+    print(f"Going to add {len(documents)} documents to the vector store")
 
+     # Process documents in chunks
+    chunk_size = 10  # Number of documents to process in each batch
+    wait_time = 5  # Wait time in seconds between batches
 
-def ingest_docs2() -> None:
-    from langchain_community.document_loaders.firecrawl import FireCrawlLoader
+    for i in range(0, len(documents), chunk_size):
+        batch = documents[i:i + chunk_size]
+        PineconeVectorStore.from_documents(batch, embeddings, index_name="langchain-docs-index")
+        print(f"Added {len(batch)} documents to the vector store")
+        time.sleep(wait_time)
 
-    langchain_documents_base_urls = [
-        "https://python.langchain.com/docs/integrations/chat//",
-        "https://python.langchain.com/docs/integrations/llms/",
-        "https://python.langchain.com/docs/integrations/text_embedding/",
-        "https://python.langchain.com/docs/integrations/document_loaders/",
-        "https://python.langchain.com/docs/integrations/document_transformers/",
-        "https://python.langchain.com/docs/integrations/vectorstores/",
-        "https://python.langchain.com/docs/integrations/retrievers/",
-        "https://python.langchain.com/docs/integrations/tools/",
-        "https://python.langchain.com/docs/integrations/stores/",
-        "https://python.langchain.com/docs/integrations/llm_caching/",
-        "https://python.langchain.com/docs/integrations/graphs/",
-        "https://python.langchain.com/docs/integrations/memory/",
-        "https://python.langchain.com/docs/integrations/callbacks/",
-        "https://python.langchain.com/docs/integrations/chat_loaders/",
-        "https://python.langchain.com/docs/concepts/",
-    ]
-
-    langchain_documents_base_urls2 = [
-        "https://python.langchain.com/docs/integrations/chat/"
-    ]
-    for url in langchain_documents_base_urls2:
-        print(f"FireCrawling {url=}")
-        loader = FireCrawlLoader(
-            url=url,
-            mode="scrape",
-        )
-        docs = loader.load()
-
-        print(f"Going to add {len(docs)} documents to Pinecone")
-        PineconeVectorStore.from_documents(
-            docs, embeddings, index_name="firecrawl-index"
-        )
-        print(f"****Loading {url}* to vectorstore done ***")
-
+    print("All documents added to the vector store")
+    # Process the documents as needed
+    
 
 if __name__ == "__main__":
-    ingest_docs2()
+    ingest_docs()
